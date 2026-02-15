@@ -183,3 +183,78 @@ gridEl.addEventListener('click', (e) => {
         playRecording(letter);
     }
 });
+
+// ===== Word Player =====
+
+const wordInput = document.getElementById('word-input');
+const playWordBtn = document.getElementById('play-word-btn');
+const speedSlider = document.getElementById('speed-slider');
+const wordMessage = document.getElementById('word-message');
+
+let isPlayingWord = false;
+
+function playWord() {
+    if (isPlayingWord) return;
+
+    const raw = wordInput.value.trim();
+    if (!raw) return;
+
+    // Extract only letters, lowercase
+    const letters = raw.toLowerCase().split('').filter(c => /[a-z]/.test(c));
+    if (letters.length === 0) return;
+
+    wordMessage.textContent = '';
+    isPlayingWord = true;
+    playWordBtn.disabled = true;
+
+    // Gap is inverted: slider max (1500) = slowest, min (100) = fastest
+    const gap = parseInt(speedSlider.value, 10);
+    const missing = [];
+
+    // Build a chain of promises to play letters in sequence
+    let chain = Promise.resolve();
+
+    letters.forEach((letter, i) => {
+        chain = chain.then(() => {
+            return getRecording(letter).then(blob => {
+                if (!blob) {
+                    missing.push(letter.toUpperCase());
+                    return;
+                }
+                return new Promise(resolve => {
+                    const url = URL.createObjectURL(blob);
+                    const audio = new Audio(url);
+                    audio.onended = () => {
+                        URL.revokeObjectURL(url);
+                        // Add gap after each letter except the last
+                        if (i < letters.length - 1) {
+                            setTimeout(resolve, gap);
+                        } else {
+                            resolve();
+                        }
+                    };
+                    audio.onerror = () => {
+                        URL.revokeObjectURL(url);
+                        resolve();
+                    };
+                    audio.play();
+                });
+            });
+        });
+    });
+
+    chain.then(() => {
+        isPlayingWord = false;
+        playWordBtn.disabled = false;
+        if (missing.length > 0) {
+            wordMessage.textContent = `Missing recordings for: ${[...new Set(missing)].join(', ')}`;
+        }
+    });
+}
+
+playWordBtn.addEventListener('click', playWord);
+
+// Also allow pressing Enter in the text input
+wordInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') playWord();
+});
