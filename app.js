@@ -291,51 +291,47 @@ function playWord() {
     isPlayingWord = true;
     playWordBtn.disabled = true;
 
-    // Gap is inverted: slider max (1500) = slowest, min (0) = fastest
-    const gap = parseInt(speedSlider.value, 10);
+    // Delay between the START of each letter (not gap after end)
+    // At low values letters overlap, at high values they play sequentially
+    const delay = parseInt(speedSlider.value, 10);
     const missing = [];
 
-    // Build a chain of promises to play letters in sequence
-    let chain = Promise.resolve();
+    // Pre-fetch all recordings, then schedule playback on timers
+    Promise.all(letters.map(letter => getRecording(letter))).then(blobs => {
+        let lastEndTime = 0;
 
-    letters.forEach((letter, i) => {
-        chain = chain.then(() => {
-            return getRecording(letter).then(blob => {
-                if (!blob) {
-                    missing.push(letter.toUpperCase());
-                    return;
-                }
-                return new Promise(resolve => {
-                    const url = URL.createObjectURL(blob);
-                    const audio = new Audio(url);
-                    audio.onended = () => {
-                        URL.revokeObjectURL(url);
-                        // Add gap after each letter except the last
-                        if (i < letters.length - 1) {
-                            setTimeout(resolve, gap);
-                        } else {
-                            resolve();
-                        }
-                    };
-                    audio.onerror = () => {
-                        URL.revokeObjectURL(url);
-                        resolve();
-                    };
-                    audio.play().catch(() => {
-                        URL.revokeObjectURL(url);
-                        resolve();
-                    });
-                });
-            });
+        blobs.forEach((blob, i) => {
+            if (!blob) {
+                missing.push(letters[i].toUpperCase());
+                return;
+            }
+
+            const startAt = i * delay;
+
+            setTimeout(() => {
+                const url = URL.createObjectURL(blob);
+                const audio = new Audio(url);
+                audio.onended = () => {
+                    URL.revokeObjectURL(url);
+                };
+                audio.onerror = () => {
+                    URL.revokeObjectURL(url);
+                };
+                audio.play().catch(() => URL.revokeObjectURL(url));
+            }, startAt);
+
+            // Estimate when the last sound finishes (delay + ~1s per letter max)
+            lastEndTime = Math.max(lastEndTime, startAt + 1500);
         });
-    });
 
-    chain.then(() => {
-        isPlayingWord = false;
-        playWordBtn.disabled = false;
-        if (missing.length > 0) {
-            wordMessage.textContent = `Missing recordings for: ${[...new Set(missing)].join(', ')}`;
-        }
+        // Re-enable the button after all sounds should be done
+        setTimeout(() => {
+            isPlayingWord = false;
+            playWordBtn.disabled = false;
+            if (missing.length > 0) {
+                wordMessage.textContent = `Missing recordings for: ${[...new Set(missing)].join(', ')}`;
+            }
+        }, lastEndTime);
     }).catch(err => {
         console.error('Word playback error:', err);
         isPlayingWord = false;
