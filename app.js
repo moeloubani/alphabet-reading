@@ -100,3 +100,86 @@ function refreshRecordingStates() {
 
 renderGrid();
 refreshRecordingStates();
+
+// ===== Recording =====
+
+let currentRecorder = null;
+let currentRecordingLetter = null;
+
+function stopCurrentRecording() {
+    if (currentRecorder && currentRecorder.state === 'recording') {
+        currentRecorder.stop();
+    }
+}
+
+function startRecording(letter) {
+    // If already recording this letter, stop it
+    if (currentRecordingLetter === letter) {
+        stopCurrentRecording();
+        return;
+    }
+
+    // Stop any other active recording first
+    stopCurrentRecording();
+
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+        const recorder = new MediaRecorder(stream);
+        const chunks = [];
+
+        currentRecorder = recorder;
+        currentRecordingLetter = letter;
+
+        // Update UI to recording state
+        const btn = document.getElementById(`rec-${letter}`);
+        btn.textContent = 'Stop';
+        btn.classList.add('recording');
+
+        recorder.ondataavailable = (e) => {
+            if (e.data.size > 0) chunks.push(e.data);
+        };
+
+        recorder.onstop = () => {
+            stream.getTracks().forEach(t => t.stop());
+            const blob = new Blob(chunks, { type: recorder.mimeType });
+            saveRecording(letter.toLowerCase(), blob).then(() => {
+                refreshRecordingStates();
+            });
+
+            // Reset UI
+            btn.textContent = 'Record';
+            btn.classList.remove('recording');
+            currentRecorder = null;
+            currentRecordingLetter = null;
+        };
+
+        recorder.start();
+    }).catch(err => {
+        console.error('Microphone access denied:', err);
+        alert('Microphone access is needed to record letter sounds.');
+    });
+}
+
+// ===== Play Single Letter =====
+
+function playRecording(letter) {
+    getRecording(letter.toLowerCase()).then(blob => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.onended = () => URL.revokeObjectURL(url);
+        audio.play();
+    });
+}
+
+// ===== Event Delegation for Grid Buttons =====
+
+gridEl.addEventListener('click', (e) => {
+    const target = e.target;
+    if (target.classList.contains('btn-record')) {
+        const letter = target.id.replace('rec-', '');
+        startRecording(letter);
+    } else if (target.classList.contains('btn-play')) {
+        const letter = target.id.replace('play-', '');
+        playRecording(letter);
+    }
+});
