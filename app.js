@@ -4,7 +4,10 @@ const DB_NAME = 'alphabet-reading';
 const DB_VERSION = 1;
 const STORE_NAME = 'recordings';
 
+let dbInstance = null;
+
 function openDB() {
+    if (dbInstance) return Promise.resolve(dbInstance);
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
         request.onupgradeneeded = (e) => {
@@ -13,7 +16,10 @@ function openDB() {
                 db.createObjectStore(STORE_NAME);
             }
         };
-        request.onsuccess = (e) => resolve(e.target.result);
+        request.onsuccess = (e) => {
+            dbInstance = e.target.result;
+            resolve(dbInstance);
+        };
         request.onerror = (e) => reject(e.target.error);
     });
 }
@@ -95,6 +101,8 @@ function refreshRecordingStates() {
                 playBtn.classList.remove('visible');
             }
         });
+    }).catch(err => {
+        console.error('Failed to load recording states:', err);
     });
 }
 
@@ -167,7 +175,7 @@ function playRecording(letter) {
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
         audio.onended = () => URL.revokeObjectURL(url);
-        audio.play();
+        audio.play().catch(() => URL.revokeObjectURL(url));
     });
 }
 
@@ -237,7 +245,10 @@ function playWord() {
                         URL.revokeObjectURL(url);
                         resolve();
                     };
-                    audio.play();
+                    audio.play().catch(() => {
+                        URL.revokeObjectURL(url);
+                        resolve();
+                    });
                 });
             });
         });
@@ -249,6 +260,10 @@ function playWord() {
         if (missing.length > 0) {
             wordMessage.textContent = `Missing recordings for: ${[...new Set(missing)].join(', ')}`;
         }
+    }).catch(err => {
+        console.error('Word playback error:', err);
+        isPlayingWord = false;
+        playWordBtn.disabled = false;
     });
 }
 
