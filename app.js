@@ -109,6 +109,76 @@ function refreshRecordingStates() {
 renderGrid();
 refreshRecordingStates();
 
+// ===== Audio Trimming =====
+
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function trimSilence(blob) {
+    return blob.arrayBuffer()
+        .then(buf => audioCtx.decodeAudioData(buf))
+        .then(audioBuffer => {
+            const channel = audioBuffer.getChannelData(0);
+            const sampleRate = audioBuffer.sampleRate;
+            const threshold = 0.01;
+            const margin = Math.floor(sampleRate * 0.02); // 20ms margin
+
+            // Find first sample above threshold
+            let start = 0;
+            for (let i = 0; i < channel.length; i++) {
+                if (Math.abs(channel[i]) > threshold) {
+                    start = Math.max(0, i - margin);
+                    break;
+                }
+            }
+
+            // Find last sample above threshold
+            let end = channel.length;
+            for (let i = channel.length - 1; i >= start; i--) {
+                if (Math.abs(channel[i]) > threshold) {
+                    end = Math.min(channel.length, i + margin);
+                    break;
+                }
+            }
+
+            // Encode trimmed audio as WAV
+            const numChannels = audioBuffer.numberOfChannels;
+            const length = end - start;
+            const wavBuffer = new ArrayBuffer(44 + length * numChannels * 2);
+            const view = new DataView(wavBuffer);
+
+            // WAV header
+            const writeStr = (offset, str) => {
+                for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+            };
+            writeStr(0, 'RIFF');
+            view.setUint32(4, 36 + length * numChannels * 2, true);
+            writeStr(8, 'WAVE');
+            writeStr(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true); // PCM
+            view.setUint16(22, numChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * numChannels * 2, true);
+            view.setUint16(32, numChannels * 2, true);
+            view.setUint16(34, 16, true); // 16-bit
+            writeStr(36, 'data');
+            view.setUint32(40, length * numChannels * 2, true);
+
+            // Interleave and write samples
+            let offset = 44;
+            for (let i = 0; i < length; i++) {
+                for (let ch = 0; ch < numChannels; ch++) {
+                    const sample = audioBuffer.getChannelData(ch)[start + i];
+                    const clamped = Math.max(-1, Math.min(1, sample));
+                    view.setInt16(offset, clamped * 0x7FFF, true);
+                    offset += 2;
+                }
+            }
+
+            return new Blob([wavBuffer], { type: 'audio/wav' });
+        });
+}
+
 // ===== Recording =====
 
 let currentRecorder = null;
@@ -149,8 +219,14 @@ function startRecording(letter) {
         recorder.onstop = () => {
             stream.getTracks().forEach(t => t.stop());
             const blob = new Blob(chunks, { type: recorder.mimeType });
-            saveRecording(letter.toLowerCase(), blob).then(() => {
+            trimSilence(blob).then(trimmed => {
+                return saveRecording(letter.toLowerCase(), trimmed);
+            }).then(() => {
                 refreshRecordingStates();
+            }).catch(err => {
+                // If trimming fails, save the original
+                console.error('Trim failed, saving original:', err);
+                saveRecording(letter.toLowerCase(), blob).then(() => refreshRecordingStates());
             });
 
             // Reset UI
@@ -215,7 +291,7 @@ function playWord() {
     isPlayingWord = true;
     playWordBtn.disabled = true;
 
-    // Gap is inverted: slider max (1500) = slowest, min (100) = fastest
+    // Gap is inverted: slider max (1500) = slowest, min (0) = fastest
     const gap = parseInt(speedSlider.value, 10);
     const missing = [];
 
