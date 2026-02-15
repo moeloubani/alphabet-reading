@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alphabet Reading</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>Alphabet Reading</h1>
+
+    <section id="letter-grid" class="letter-grid"></section>
+
+    <section id="word-player" class="word-player">
+        <h2>Sound Out a Word</h2>
+        <div class="word-controls">
+            <input type="text" id="word-input" placeholder="Type a word..." autocomplete="off">
+            <button id="play-word-btn">Play</button>
+        </div>
+        <div class="speed-control">
+            <label for="speed-slider">Slower</label>
+            <input type="range" id="speed-slider" min="100" max="1500" value="500" step="50">
+            <label>Faster</label>
+        </div>
+        <p id="word-message" class="word-message"></p>
+    </section>
+
+    <script src="app.js"></script>
+</body>
+</html>
